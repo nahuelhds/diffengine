@@ -78,17 +78,14 @@ class Feed(BaseModel):
                 FeedEntry.create(entry=entry, feed=self)
                 logging.info("found new entry: %s", e.link)
 
-                # TODO: try/catch tweet new entry
                 if 'twitter' in f:
-                    tweet_new_entry(entry, f['twitter'])
+                    tweet_entry(entry, f['twitter'])
 
                 count += 1
             elif len(entry.feeds.where(Feed.url == self.url)) == 0:
                 FeedEntry.create(entry=entry, feed=self)
                 logging.debug("found entry from another feed: %s", e.link)
                 count += 1
-
-            # TODO: else, if it has not been tweeted yet, then try tweeing it again
 
         return count
 
@@ -161,7 +158,7 @@ class Entry(BaseModel):
             return None
 
         if resp.status_code != 200:
-            logging.warn("Got %s when fetching %s", resp.status_code, self.url)
+            logging.warning("Got %s when fetching %s", resp.status_code, self.url)
             return None
 
         doc = readability.Document(resp.text)
@@ -174,7 +171,7 @@ class Entry(BaseModel):
         canonical_url = _remove_utm(resp.url)
 
         # get the latest version, if we have one
-        versions = EntryVersion.select().where(EntryVersion.url==canonical_url).order_by(-EntryVersion.created).limit(1)
+        versions = EntryVersion.select().where(EntryVersion.url == canonical_url).order_by(-EntryVersion.created).limit(1)
         if len(versions) == 0:
             old = None
         else:
@@ -197,11 +194,14 @@ class Entry(BaseModel):
                 logging.debug("found new version %s", old.entry.url)
                 diff = Diff.create(old=old, new=new)
                 if not diff.generate():
-                    logging.warn("html diff showed no changes: %s", self.url)
+                    logging.warning("html diff showed no changes: %s", self.url)
                     new.delete()
                     new = None
             else:
                 logging.debug("found first version: %s", self.url)
+                # Save the entry status_id inside the first entryVersion
+                new.tweet_status_id = self.tweet_status_id
+                new.save()
         else:
             logging.debug("content hasn't changed %s", self.url)
 
@@ -224,6 +224,7 @@ class EntryVersion(BaseModel):
     created = DateTimeField(default=datetime.utcnow)
     archive_url = CharField(null=True)
     entry = ForeignKeyField(Entry, backref='versions')
+    tweet_status_id = BigIntegerField(null=True)
 
     @property
     def diff(self):
@@ -264,7 +265,7 @@ class EntryVersion(BaseModel):
                 return self.archive_url
             else:
                 logging.error("unable to get archive url from %s [%s]: %s",
-                    save_url, resp.status_code, resp.headers)
+                              save_url, resp.status_code, resp.headers)
 
         except Exception as e:
             logging.error("unexpected archive.org response for %s: %s", save_url, e)
@@ -429,7 +430,7 @@ def setup_browser():
     browser = webdriver.Firefox(options=opts)
 
 
-def tweet_new_entry(entry, token):
+def tweet_entry(entry, token):
     if 'twitter' not in config:
         logging.debug("twitter not configured")
         return
@@ -437,7 +438,7 @@ def tweet_new_entry(entry, token):
         logging.debug("access token/secret not set up for feed")
         return
     elif entry.tweet_status_id:
-        logging.warn("entry %s has already been tweeted", entry.id)
+        logging.warning("entry %s has already been tweeted", entry.id)
         return
 
     t = config['twitter']
@@ -463,10 +464,10 @@ def tweet_diff(diff, token):
         logging.debug("access token/secret not set up for feed")
         return
     elif diff.tweeted:
-        logging.warn("diff %s has already been tweeted", diff.id)
+        logging.warning("diff %s has already been tweeted", diff.id)
         return
     elif not (diff.old.archive_url and diff.new.archive_url):
-        logging.warn("not tweeting without archive urls")
+        logging.warning("not tweeting without archive urls")
         return
 
     t = config['twitter']
@@ -475,16 +476,20 @@ def tweet_diff(diff, token):
     auth.set_access_token(token['access_token'], token['access_token_secret'])
     twitter = tweepy.API(auth)
 
-    status = diff.new.title
-    if len(status) >= 225:
-        status = status[0:225] + "…"
+    text = diff.new.title
+    if len(text) >= 225:
+        text = text[0:225] + "…"
 
-    status += " " + diff.old.archive_url +  " ➜ " + diff.new.archive_url
+    text += " " + diff.old.archive_url +  " ➜ " + diff.new.archive_url
 
     try:
-        status = twitter.update_with_media(diff.thumbnail_path, status)
+        status = twitter.update_with_media(diff.thumbnail_path, status=text, in_reply_to_status_id=diff.old.tweet_status_id)
+        logging.info("tweeted %s", status.text)
+        # Save the tweet status id inside the new version
+        diff.new.tweet_status_id = status.id
+        diff.new.save()
+        # And save that the diff has been tweeted
         diff.tweeted = datetime.utcnow()
-        logging.info("tweeted %s", status)
         diff.save()
     except Exception as e:
         logging.error("unable to tweet: %s", e)
