@@ -279,6 +279,18 @@ class Diff(BaseModel):
     blogged = DateTimeField(null=True)
 
     @property
+    def url_changed(self):
+        return self.old.url != self.new.url
+
+    @property
+    def title_changed(self):
+        return self.old.title != self.new.title
+
+    @property
+    def summary_changed(self):
+        return self.old.summary != self.new.summary
+
+    @property
     def html_path(self):
         # use prime number to spread across directories
         path = home_path("diffs/%s/%s.html" % ((self.id % 257), self.id))
@@ -340,9 +352,10 @@ class Diff(BaseModel):
 
 
 def setup_logging():
+    verbose = config.get('verbose', False)
     path = config.get('log', home_path('diffengine.log'))
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         filename=path,
         filemode="a"
@@ -476,11 +489,7 @@ def tweet_diff(diff, token):
     auth.set_access_token(token['access_token'], token['access_token_secret'])
     twitter = tweepy.API(auth)
 
-    text = diff.new.title
-    if len(text) >= 225:
-        text = text[0:225] + "…"
-
-    text += " " + diff.old.archive_url +  " ➜ " + diff.new.archive_url
+    text = build_text(diff, config['lang'])
 
     try:
         status = twitter.update_with_media(diff.thumbnail_path, status=text, in_reply_to_status_id=diff.old.tweet_status_id)
@@ -493,6 +502,38 @@ def tweet_diff(diff, token):
         diff.save()
     except Exception as e:
         logging.error("unable to tweet: %s", e)
+
+
+def build_text(diff, lang):
+    logging.debug("Building text for diff %s" % diff.new.title)
+    text = None
+
+    # Try build the text from i18n
+    if all (k in lang for k in ("change_in", "the_url", "the_title", "the_summary")):
+        logging.debug("Found all required lang terms!")
+        try:
+            changes = []
+            if diff.url_changed:
+                changes.append(" %s" % lang['the_url'])
+            if diff.title_changed:
+                changes.append(" %s" % lang['the_title'])
+            if diff.summary_changed:
+                changes.append(" %s" % lang['the_summary'])
+
+            return '%s %s\n%s' % (lang['change_in'], ', '.join(changes), diff.new.archive_url)
+
+        except Exception as e:
+            logging.error("Could not build text from lang", e)
+
+    logging.debug("Building default text")
+    # otherwise, build it as usual
+    if text is None:
+        text = diff.new.title
+        if len(text) >= 225:
+            text = text[0:225] + "…"
+        text += " " + diff.old.archive_url +  " ➜ " + diff.new.archive_url
+
+    return text
 
 
 def init(new_home, prompt=True):
