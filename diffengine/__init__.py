@@ -514,14 +514,20 @@ def build_text(diff, lang):
         try:
             changes = []
             if diff.url_changed:
-                changes.append(" %s" % lang['the_url'])
+                changes.append(lang['the_url'])
             if diff.title_changed:
-                changes.append(" %s" % lang['the_title'])
+                changes.append(lang['the_title'])
             if diff.summary_changed:
-                changes.append(" %s" % lang['the_summary'])
+                changes.append(lang['the_summary'])
 
-            return '%s %s\n%s' % (lang['change_in'], ', '.join(changes), diff.new.archive_url)
+            if len(changes) > 1:
+                and_change = ' %s ' % lang['and']
+                last_change = changes.pop(len(changes) - 1)
+            else:
+                and_change = ''
+                last_change = ''
 
+            return '%s %s%s%s\n%s' % (lang['change_in'], ', '.join(changes), and_change, last_change, diff.new.archive_url)
         except Exception as e:
             logging.error("Could not build text from lang", e)
 
