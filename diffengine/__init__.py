@@ -47,7 +47,7 @@ class Feed(BaseModel):
     url = CharField(primary_key=True)
     name = CharField()
     created = DateTimeField(default=datetime.utcnow)
-    
+
     @property
     def entries(self):
         return (Entry.select()
@@ -56,7 +56,7 @@ class Feed(BaseModel):
                 .where(Feed.url==self.url)
                 .order_by(Entry.created.desc()))
 
-    def get_latest(self):
+    def get_latest(self, f):
         """
         Gets the feed and creates new entries for new content. The number
         of new entries created will be returned.
@@ -70,15 +70,19 @@ class Feed(BaseModel):
             return 0
         count = 0
         for e in feed.entries:
-            # note: look up with url only, because there may be 
+            # note: look up with url only, because there may be
             # overlap bewteen feeds, especially when a large newspaper
             # has multiple feeds
             entry, created = Entry.get_or_create(url=e.link)
             if created:
                 FeedEntry.create(entry=entry, feed=self)
                 logging.info("found new entry: %s", e.link)
+
+                if 'twitter' in f:
+                    tweet_entry(entry, f['twitter'])
+
                 count += 1
-            elif len(entry.feeds.where(Feed.url == self.url)) == 0: 
+            elif len(entry.feeds.where(Feed.url == self.url)) == 0:
                 FeedEntry.create(entry=entry, feed=self)
                 logging.debug("found entry from another feed: %s", e.link)
                 count += 1
@@ -90,6 +94,7 @@ class Entry(BaseModel):
     url = CharField()
     created = DateTimeField(default=datetime.utcnow)
     checked = DateTimeField(default=datetime.utcnow)
+    tweet_status_id = BigIntegerField(null=True)
 
     @property
     def feeds(self):
@@ -98,10 +103,10 @@ class Entry(BaseModel):
                 .join(Entry)
                 .where(Entry.id==self.id))
 
-    @property   
+    @property
     def stale(self):
         """
-        A heuristic for checking new content very often, and checking 
+        A heuristic for checking new content very often, and checking
         older content less frequently. If an entry is deemed stale then
         it is worth checking again to see if the content has changed.
         """
@@ -131,10 +136,10 @@ class Entry(BaseModel):
 
     def get_latest(self):
         """
-        get_latest is the heart of the application. It will get the current 
-        version on the web, extract its summary with readability and compare 
-        it against a previous version. If a difference is found it will 
-        compute the diff, save it as html and png files, and tell Internet 
+        get_latest is the heart of the application. It will get the current
+        version on the web, extract its summary with readability and compare
+        it against a previous version. If a difference is found it will
+        compute the diff, save it as html and png files, and tell Internet
         Archive to create a snapshot.
 
         If a new version was found it will be returned, otherwise None will
@@ -153,7 +158,7 @@ class Entry(BaseModel):
             return None
 
         if resp.status_code != 200:
-            logging.warn("Got %s when fetching %s", resp.status_code, self.url)
+            logging.warning("Got %s when fetching %s", resp.status_code, self.url)
             return None
 
         doc = readability.Document(resp.text)
@@ -166,13 +171,13 @@ class Entry(BaseModel):
         canonical_url = _remove_utm(resp.url)
 
         # get the latest version, if we have one
-        versions = EntryVersion.select().where(EntryVersion.url==canonical_url).order_by(-EntryVersion.created).limit(1)
+        versions = EntryVersion.select().where(EntryVersion.url == canonical_url).order_by(-EntryVersion.created).limit(1)
         if len(versions) == 0:
             old = None
         else:
             old = versions[0]
 
-        # compare what we got against the latest version and create a 
+        # compare what we got against the latest version and create a
         # new version if it looks different, or is brand new (no old version)
         new = None
 
@@ -189,11 +194,14 @@ class Entry(BaseModel):
                 logging.debug("found new version %s", old.entry.url)
                 diff = Diff.create(old=old, new=new)
                 if not diff.generate():
-                    logging.warn("html diff showed no changes: %s", self.url)
+                    logging.warning("html diff showed no changes: %s", self.url)
                     new.delete()
                     new = None
             else:
                 logging.debug("found first version: %s", self.url)
+                # Save the entry status_id inside the first entryVersion
+                new.tweet_status_id = self.tweet_status_id
+                new.save()
         else:
             logging.debug("content hasn't changed %s", self.url)
 
@@ -216,6 +224,7 @@ class EntryVersion(BaseModel):
     created = DateTimeField(default=datetime.utcnow)
     archive_url = CharField(null=True)
     entry = ForeignKeyField(Entry, backref='versions')
+    tweet_status_id = BigIntegerField(null=True)
 
     @property
     def diff(self):
@@ -255,8 +264,8 @@ class EntryVersion(BaseModel):
                 self.save()
                 return self.archive_url
             else:
-                logging.error("unable to get archive url from %s [%s]: %s", 
-                    save_url, resp.status_code, resp.headers)
+                logging.error("unable to get archive url from %s [%s]: %s",
+                              save_url, resp.status_code, resp.headers)
 
         except Exception as e:
             logging.error("unexpected archive.org response for %s: %s", save_url, e)
@@ -421,18 +430,15 @@ def setup_browser():
     browser = webdriver.Firefox(options=opts)
 
 
-def tweet_diff(diff, token):
+def tweet_entry(entry, token):
     if 'twitter' not in config:
         logging.debug("twitter not configured")
         return
     elif not token:
         logging.debug("access token/secret not set up for feed")
         return
-    elif diff.tweeted:
-        logging.warn("diff %s has already been tweeted", diff.id)
-        return
-    elif not (diff.old.archive_url and diff.new.archive_url):
-        logging.warn("not tweeting without archive urls")
+    elif entry.tweet_status_id:
+        logging.warning("entry %s has already been tweeted", entry.id)
         return
 
     t = config['twitter']
@@ -441,16 +447,49 @@ def tweet_diff(diff, token):
     auth.set_access_token(token['access_token'], token['access_token_secret'])
     twitter = tweepy.API(auth)
 
-    status = diff.new.title
-    if len(status) >= 225:
-        status = status[0:225] + "…"
+    try:
+        status = twitter.update_status(entry.url)
+        entry.tweet_status_id = status.id
+        logging.info("tweeted %s", status.text)
+        entry.save()
+    except Exception as e:
+        logging.error("unable to tweet: %s", e)
 
-    status += " " + diff.old.archive_url +  " ➜ " + diff.new.archive_url
+
+def tweet_diff(diff, token):
+    if 'twitter' not in config:
+        logging.debug("twitter not configured")
+        return
+    elif not token:
+        logging.debug("access token/secret not set up for feed")
+        return
+    elif diff.tweeted:
+        logging.warning("diff %s has already been tweeted", diff.id)
+        return
+    elif not (diff.old.archive_url and diff.new.archive_url):
+        logging.warning("not tweeting without archive urls")
+        return
+
+    t = config['twitter']
+    auth = tweepy.OAuthHandler(t['consumer_key'], t['consumer_secret'])
+    auth.secure = True
+    auth.set_access_token(token['access_token'], token['access_token_secret'])
+    twitter = tweepy.API(auth)
+
+    text = diff.new.title
+    if len(text) >= 225:
+        text = text[0:225] + "…"
+
+    text += " " + diff.old.archive_url +  " ➜ " + diff.new.archive_url
 
     try:
-        twitter.update_with_media(diff.thumbnail_path, status)
+        status = twitter.update_with_media(diff.thumbnail_path, status=text, in_reply_to_status_id=diff.old.tweet_status_id)
+        logging.info("tweeted %s", status.text)
+        # Save the tweet status id inside the new version
+        diff.new.tweet_status_id = status.id
+        diff.new.save()
+        # And save that the diff has been tweeted
         diff.tweeted = datetime.utcnow()
-        logging.info("tweeted %s", status)
         diff.save()
     except Exception as e:
         logging.error("unable to tweet: %s", e)
@@ -473,7 +512,7 @@ def main():
     init(home)
     start_time = datetime.utcnow()
     logging.info("starting up with home=%s", home)
-    
+
     checked = skipped = new = 0
 
     for f in config.get('feeds', []):
@@ -482,8 +521,8 @@ def main():
             logging.debug("created new feed for %s", f['url'])
 
         # get latest feed entries
-        feed.get_latest()
-        
+        feed.get_latest(f)
+
         # get latest content for each entry
         for entry in feed.entries:
             if not entry.stale:
@@ -501,7 +540,7 @@ def main():
                 tweet_diff(version.diff, f['twitter'])
 
     elapsed = datetime.utcnow() - start_time
-    logging.info("shutting down: new=%s checked=%s skipped=%s elapsed=%s", 
+    logging.info("shutting down: new=%s checked=%s skipped=%s elapsed=%s",
         new, checked, skipped, elapsed)
 
     browser.quit()
@@ -517,7 +556,7 @@ def _normal(s):
     s = s.replace('”', '"')
     s = s.replace("’", "'")
     s = s.replace("\n", " ")
-    s = s.replace("­", "") 
+    s = s.replace("­", "")
     s = re.sub(r'  +', ' ', s)
     s = s.strip()
     return s
@@ -525,12 +564,12 @@ def _normal(s):
 def _equal(s1, s2):
     return _fingerprint(s1) == _fingerprint(s2)
 
-punctuation = dict.fromkeys(i for i in range(sys.maxunicode) 
+punctuation = dict.fromkeys(i for i in range(sys.maxunicode)
         if unicodedata.category(chr(i)).startswith('P'))
 
 def _fingerprint(s):
-    # make sure the string has been normalized, bleach everything, remove all 
-    # whitespace and punctuation to create a pseudo fingerprint for the text 
+    # make sure the string has been normalized, bleach everything, remove all
+    # whitespace and punctuation to create a pseudo fingerprint for the text
     # for use during comparison
     s = _normal(s)
     s = bleach.clean(s, tags=[], strip=True)
@@ -553,7 +592,7 @@ def _remove_utm(url):
 
 def _get(url, allow_redirects=True):
     return requests.get(
-        url, 
+        url,
         timeout=60,
         headers={"User-Agent": UA},
         allow_redirects=allow_redirects
