@@ -13,7 +13,6 @@ if os.path.isdir("test"):
 init("test", prompt=False)
 
 # the sequence of these tests is significant
-
 def test_version():
     assert setup.version in UA
 
@@ -112,3 +111,20 @@ def test_fingerprint():
     assert _fingerprint("foo<br>bar") == "foobar"
     assert _fingerprint("foo'bar") == "foobar"
     assert _fingerprint("foo’bar") == "foobar"
+
+def test_build_text_from_changes():
+    lang = {
+        'change_in': "Changes in",
+        'the_url': "the URL",
+        'the_title': "the title",
+        'and': "and",
+        'the_summary': "the summary"
+    }
+
+    assert build_text_from_changes(lang, True, False, False) == "Changes in the URL"
+    assert build_text_from_changes(lang, False, True, False) == "Changes in the title"
+    assert build_text_from_changes(lang, False, False, True) == "Changes in the summary"
+    assert build_text_from_changes(lang, True, True, False) == "Changes in the URL and the title"
+    assert build_text_from_changes(lang, False, True, True) == "Changes in the title and the summary"
+    assert build_text_from_changes(lang, True, False, True) == "Changes in the URL and the summary"
+    assert build_text_from_changes(lang, True, True, True) == "Changes in the URL, the title and the summary"

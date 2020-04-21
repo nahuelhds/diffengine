@@ -512,22 +512,7 @@ def build_text(diff, lang):
     if all (k in lang for k in ("change_in", "the_url", "the_title", "the_summary")):
         logging.debug("Found all required lang terms!")
         try:
-            changes = []
-            if diff.url_changed:
-                changes.append(lang['the_url'])
-            if diff.title_changed:
-                changes.append(lang['the_title'])
-            if diff.summary_changed:
-                changes.append(lang['the_summary'])
-
-            if len(changes) > 1:
-                and_change = ' %s ' % lang['and']
-                last_change = changes.pop(len(changes) - 1)
-            else:
-                and_change = ''
-                last_change = ''
-
-            return '%s %s%s%s\n%s' % (lang['change_in'], ', '.join(changes), and_change, last_change, diff.new.archive_url)
+            return '%s\n%s' % (build_text_from_changes(lang, diff.url_changed, diff.title_changed, diff.summary_changed), diff.new.archive_url)
         except Exception as e:
             logging.error("Could not build text from lang", e)
 
@@ -540,6 +525,25 @@ def build_text(diff, lang):
         text += " " + diff.old.archive_url +  " ➜ " + diff.new.archive_url
 
     return text
+
+
+def build_text_from_changes(lang, url_changed, title_changed, summary_changed):
+    changes = []
+    if url_changed:
+        changes.append(lang['the_url'])
+    if title_changed:
+        changes.append(lang['the_title'])
+    if summary_changed:
+        changes.append(lang['the_summary'])
+
+    if len(changes) > 1:
+        and_change = ' %s ' % lang['and']
+        last_change = changes.pop(len(changes) - 1)
+    else:
+        and_change = ''
+        last_change = ''
+
+    return '%s %s%s%s' % (lang['change_in'], ', '.join(changes), and_change, last_change)
 
 
 def init(new_home, prompt=True):
