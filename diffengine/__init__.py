@@ -391,9 +391,10 @@ def get_initial_config():
         if len(feed.entries) == 0:
             print("Oops, that doesn't look like an RSS or Atom feed.")
         else:
+            name = input("What is the name for this feed?")
             config['feeds'].append({
                 "url": url,
-                "name": feed.feed.title
+                "name": name if name == '' else feed.feed.title
             })
 
     answer = input("Would you like to set up tweeting edits? [Y/n] ")
@@ -669,10 +670,9 @@ def add_rss():
         return
 
     name = input("What is the name for this feed?")
-
     feed = {
         "url": url,
-        "name": name
+        "name": name if name == '' else feed.feed.title
     }
 
     twitter = config['twitter']
