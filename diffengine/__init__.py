@@ -8,9 +8,7 @@ UA = "diffengine/0.2.6 (+https://github.com/docnow/diffengine)"
 import os
 import re
 import sys
-import json
 import time
-import yaml
 import bleach
 import codecs
 import jinja2
@@ -19,33 +17,28 @@ import tweepy
 import logging
 import htmldiff
 import requests
-import selenium
 import feedparser
-import subprocess
 import readability
 import unicodedata
 import argparse
-import selenium.webdriver
+import yaml
 
+from datetime import datetime
+from dotenv import load_dotenv
+from envyaml import EnvYAML
 from peewee import *
 from playhouse.migrate import SqliteMigrator, migrate
-from datetime import datetime, timedelta
 from selenium import webdriver
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
-from selenium import webdriver
-from dotenv import load_dotenv
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--add', action='store_true')
+parser.add_argument('--auth', action='store_true')
 
 home = None
 config = {}
 db = SqliteDatabase(None)
 browser = None
-
-# TODO: generate command line for Twitter consumer keys definition
-# TODO: generate command line for individual feed addition, reuse get_initial_config
 
 class BaseModel(Model):
     class Meta:
@@ -376,7 +369,7 @@ def load_config(prompt=True):
     global config
     config_file = os.path.join(home, "config.yaml")
     if os.path.isfile(config_file):
-        config = yaml.load(open(config_file), Loader=yaml.FullLoader)
+        config = EnvYAML(config_file)
     else:
         if not os.path.isdir(home):
             os.makedirs(home)
@@ -670,49 +663,23 @@ def _get(url, allow_redirects=True):
         allow_redirects=allow_redirects
     )
 
-def add_rss():
+def get_auth_link():
     global home
     home = os.getcwd()
     env_path = "%s/.env" % home
     load_dotenv(dotenv_path=env_path)
     config = load_config(True)
-
-    # Add new rss
-    url = input("What RSS/Atom feed would you like to monitor?")
-    feed = feedparser.parse(url)
-    if len(feed.entries) == 0:
-        print("Oops, that doesn't look like an RSS or Atom feed.")
-        return
-
-    name = input("What is the name for this feed?")
-    feed = {
-        "url": url,
-        "name": name if name == '' else feed.feed.title
-    }
-
     twitter = config['twitter']
     auth = tweepy.OAuthHandler(twitter['consumer_key'], twitter['consumer_secret'])
     auth.secure = True
     auth_url = auth.get_authorization_url()
     input("Log in to https://twitter.com as the user you want to tweet as and hit enter.")
-    input("Visit %s in your browser and hit enter." % auth_url)
-    pin = input("What is your PIN: ")
-    token = auth.get_access_token(verifier=pin)
-    feed["twitter"] = {
-        "access_token": token[0],
-        "access_token_secret": token[1]
-    }
-
-    config['feeds'].append(feed)
-
-    # Save the file
-    config_file = os.path.join(home, "config.yaml")
-    yaml.dump(config, open(config_file, "w"), default_flow_style=False)
+    print("This is the auth link %s" % auth_url)
 
 if __name__ == "__main__":
     options = parser.parse_args()
-    if options.add:
-        add_rss()
+    if options.auth:
+        get_auth_link()
     else:
         main()
 
