@@ -673,6 +673,8 @@ def _get(url, allow_redirects=True):
 def add_rss():
     global home
     home = os.getcwd()
+    env_path = "%s/.env" % home
+    load_dotenv(dotenv_path=env_path)
     config = load_config(True)
 
     # Add new rss
