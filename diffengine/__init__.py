@@ -36,12 +36,13 @@ from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 parser = argparse.ArgumentParser()
 parser.add_argument('--auth', action='store_true')
 
-DATABASE_URL = os.environ['DATABASE_URL']
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
 if DATABASE_URL is not None:
-    logging.info("Databse defined, connecting to it")
+    print("Database defined, connecting to ")
     db = psycopg2.connect(DATABASE_URL, sslmode='require')
 else:
-    logging.info("No database defined, using SQLite")
+    print("No database defined, using SQLite")
     db = SqliteDatabase(None)
 
 home = None
