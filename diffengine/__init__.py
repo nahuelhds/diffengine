@@ -356,12 +356,20 @@ class Diff(BaseModel):
 def setup_logging():
     verbose = config.get('verbose', False)
     path = config.get('log', home_path('diffengine.log'))
+
+    format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    log_formatter = logging.Formatter(format)
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        format=format,
         filename=path,
         filemode="a"
     )
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(log_formatter)
+    logging.getLogger().addHandler(console_handler)
+
     logging.getLogger("readability.readability").setLevel(logging.WARNING)
     logging.getLogger("tweepy.binder").setLevel(logging.WARNING)
 
