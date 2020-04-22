@@ -444,14 +444,20 @@ def home_path(rel_path):
 def setup_db():
     global db
 
-    db.init()
+    # If it's local, it needs to be init
+    if DATABASE_URL is None:
+        db.init()
+
     db.connect()
     db.create_tables([Feed, Entry, FeedEntry, EntryVersion, Diff], safe=True)
-    try:
-        migrator = SqliteMigrator(db)
-        migrate(migrator.add_index('entryversion', ('url',), False),)
-    except OperationalError as e:
-        logging.debug(e)
+
+    # If it's local, it needs to be init
+    if DATABASE_URL is None:
+        try:
+            migrator = SqliteMigrator(db)
+            migrate(migrator.add_index('entryversion', ('url',), False),)
+        except OperationalError as e:
+            logging.debug(e)
 
 
 def setup_browser():
@@ -583,9 +589,7 @@ def init(new_home, prompt=True):
     setup_browser()
     setup_logging()
 
-    # If it's local, it needs to be init
-    if DATABASE_URL is None:
-        setup_db()
+    setup_db()
 
 def main():
     if len(sys.argv) == 1:
