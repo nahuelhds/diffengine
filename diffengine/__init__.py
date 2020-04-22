@@ -36,11 +36,16 @@ from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 parser = argparse.ArgumentParser()
 parser.add_argument('--auth', action='store_true')
 
-DATABASE_URL = os.environ.get('DATABASE_URL')
+DATABASE_URL = os.environ['DATABASE_URL']
+if DATABASE_URL is not None:
+    logging.info("Databse defined, connecting to it")
+    db = psycopg2.connect(DATABASE_URL, sslmode='require')
+else:
+    logging.info("No database defined, using SQLite")
+    db = SqliteDatabase(None)
 
 home = None
 config = {}
-db = psycopg2.connect(DATABASE_URL, sslmode='require') if DATABASE_URL is not None else SqliteDatabase(None)
 browser = None
 
 class BaseModel(Model):
