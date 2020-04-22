@@ -368,17 +368,16 @@ def setup_logging():
 def load_config(prompt=True):
     global config
     config_file = os.path.join(home, "config.yaml")
-    if os.path.isfile(config_file):
-        config = EnvYAML(config_file)
-    else:
+    if not os.path.isfile(config_file):
         if not os.path.isdir(home):
             os.makedirs(home)
         if prompt:
-            config = get_initial_config()
-        yaml.dump(config, open(config_file, "w"), default_flow_style=False)
-    return config
+            build_initial_config(config_file)
 
-def get_initial_config():
+    config = EnvYAML(config_file)
+
+
+def build_initial_config(config_file):
     config = {"feeds": []}
 
     while len(config['feeds']) == 0:
@@ -416,10 +415,11 @@ def get_initial_config():
             "access_token_secret": token[1]
         }
 
+    yaml.dump(config, open(config_file, "w"), default_flow_style=False)
     print("Saved your configuration in %s/config.yaml" % home.rstrip("/"))
     print("Fetching initial set of entries.")
 
-    return config
+
 
 def home_path(rel_path):
     return os.path.join(home, rel_path)
@@ -456,7 +456,7 @@ def setup_browser():
 
 
 def tweet_entry(entry, token):
-    if 'twitter' not in config:
+    if config.get('twitter', None) is None:
         logging.debug("twitter not configured")
         return
     elif not token:
@@ -482,7 +482,7 @@ def tweet_entry(entry, token):
 
 
 def tweet_diff(diff, token):
-    if 'twitter' not in config:
+    if config.get('twitter', None) is None:
         logging.debug("twitter not configured")
         return
     elif not token:

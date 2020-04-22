@@ -12,3 +12,4 @@ diffengine.egg-info
 build
 Pip*
 .venv
+venv
