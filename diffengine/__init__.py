@@ -31,6 +31,7 @@ from peewee import *
 from playhouse.migrate import SqliteMigrator, migrate
 from selenium import webdriver
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+from playhouse.db_url import connect
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--auth', action='store_true')
@@ -39,7 +40,7 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 
 if DATABASE_URL is not None:
     print("Database defined, connecting to ")
-    db = PostgresqlDatabase(DATABASE_URL)
+    db = connect(DATABASE_URL)
 else:
     print("No database defined, using SQLite")
     db = SqliteDatabase(None)
@@ -443,9 +444,7 @@ def home_path(rel_path):
 def setup_db():
     global db
 
-    if DATABASE_URL is None:
-        db.init()
-
+    db.init()
     db.connect()
     db.create_tables([Feed, Entry, FeedEntry, EntryVersion, Diff], safe=True)
     try:
@@ -583,7 +582,10 @@ def init(new_home, prompt=True):
     load_config(prompt)
     setup_browser()
     setup_logging()
-    setup_db()
+
+    # If it's local, it needs to be init
+    if DATABASE_URL is None:
+        setup_db()
 
 def main():
     if len(sys.argv) == 1:
