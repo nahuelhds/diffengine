@@ -22,6 +22,7 @@ import readability
 import unicodedata
 import argparse
 import yaml
+import psycopg2
 
 from datetime import datetime
 from dotenv import load_dotenv
@@ -35,9 +36,14 @@ from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 parser = argparse.ArgumentParser()
 parser.add_argument('--auth', action='store_true')
 
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+print(DATABASE_URL)
+return;
+
 home = None
 config = {}
-db = SqliteDatabase(None)
+db = psycopg2.connect(DATABASE_URL, sslmode='require') if DATABASE_URL is not None else SqliteDatabase(None)
 browser = None
 
 class BaseModel(Model):
@@ -695,4 +701,5 @@ if __name__ == "__main__":
         get_auth_link()
     else:
         main()
+    sys.exit("Finishing diffengine")
 
