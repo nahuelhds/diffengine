@@ -683,6 +683,11 @@ def get_auth_link():
     auth_url = auth.get_authorization_url()
     input("Log in to https://twitter.com as the user you want to tweet as and hit enter.")
     print("This is the auth link %s" % auth_url)
+    pin = input("What is your PIN: ")
+    token = auth.get_access_token(verifier=pin)
+    print("These are your access token and secret. Do not share them with anyone!")
+    print("access_token\n%s\n" % token[0])
+    print("access_token_secret\n%s" % token[1])
 
 if __name__ == "__main__":
     options = parser.parse_args()
