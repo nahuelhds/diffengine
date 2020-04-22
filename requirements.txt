@@ -1,14 +1,14 @@
 bleach
+envyaml>=0.1912
+feedparser
 genshi
+-e https://github.com/edsu/htmldiff/tarball/master#egg=htmldiff-0.2
 jinja2
 peewee>=3.0
 pillow
 pytest
 python-dotenv>=0.13.0
-pyyaml>=5.1
-tweepy
+readability-lxml
 requests
 selenium
-feedparser
-readability-lxml
-https://github.com/edsu/htmldiff/tarball/master#egg=htmldiff-0.2
+tweepy
