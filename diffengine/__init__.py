@@ -40,7 +40,7 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 
 if DATABASE_URL is not None:
     print("Database defined, connecting to ")
-    db = PostgresqlDatabase(host=DATABASE_URL)
+    db = PostgresqlDatabase(DATABASE_URL)
 else:
     print("No database defined, using SQLite")
     db = SqliteDatabase(None)
