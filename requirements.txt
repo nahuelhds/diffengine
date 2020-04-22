@@ -4,6 +4,7 @@ jinja2
 peewee>=3.0
 pillow
 pytest
+python-dotenv>=0.13.0
 pyyaml>=5.1
 tweepy
 requests

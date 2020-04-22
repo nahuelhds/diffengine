@@ -25,13 +25,16 @@ import subprocess
 import readability
 import unicodedata
 import argparse
+import selenium.webdriver
 
 from peewee import *
 from playhouse.migrate import SqliteMigrator, migrate
 from datetime import datetime, timedelta
 from selenium import webdriver
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium import webdriver
+from dotenv import load_dotenv
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--add', action='store_true')
@@ -399,9 +402,11 @@ def get_initial_config():
 
     answer = input("Would you like to set up tweeting edits? [Y/n] ")
     if answer.lower() == "y":
+        twitter_consumer_key = os.getenv("TWITTER_CONSUMER_KEY")
+        twitter_consumer_secret = os.getenv("TWITTER_CONSUMER_SECRET")
         print("Go to https://apps.twitter.com and create an application.")
-        consumer_key = input("What is the consumer key? ")
-        consumer_secret = input("What is the consumer secret? ")
+        consumer_key = twitter_consumer_key if twitter_consumer_key is not None else input("What is the consumer key? ")
+        consumer_secret = twitter_consumer_secret if twitter_consumer_secret is not None else input("What is the consumer secret? ")
         auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
         auth.secure = True
         auth_url = auth.get_authorization_url()
@@ -443,12 +448,18 @@ def setup_db():
 def setup_browser():
     global browser
 
-    if not shutil.which('geckodriver'):
-        sys.exit("Please install geckodriver and make sure it is in your PATH.")
+    executable_path = 'chromedriver' if os.environ.get("CHROMEDRIVER_PATH") is None else os.environ.get("CHROMEDRIVER_PATH")
+    binary_location = '' if os.environ.get("GOOGLE_CHROME_BIN") is None else os.environ.get("GOOGLE_CHROME_BIN")
 
-    opts = FirefoxOptions()
-    opts.headless = True
-    browser = webdriver.Firefox(options=opts)
+    if not shutil.which(executable_path):
+        sys.exit("Please install chromedriver and make sure it is in your PATH.")
+
+    options = webdriver.ChromeOptions()
+    options.binary_location = binary_location
+    options.add_argument("--headless")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--no-sandbox")
+    browser = webdriver.Chrome(executable_path=executable_path, options=options)
 
 
 def tweet_entry(entry, token):
@@ -557,6 +568,8 @@ def build_text_from_changes(lang, url_changed, title_changed, summary_changed):
 def init(new_home, prompt=True):
     global home
     home = new_home
+    env_path = "%s/.env" % new_home
+    load_dotenv(dotenv_path=env_path)
     load_config(prompt)
     setup_browser()
     setup_logging()
