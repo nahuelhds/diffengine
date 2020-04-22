@@ -38,9 +38,6 @@ parser.add_argument('--auth', action='store_true')
 
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-print(DATABASE_URL)
-return;
-
 home = None
 config = {}
 db = psycopg2.connect(DATABASE_URL, sslmode='require') if DATABASE_URL is not None else SqliteDatabase(None)
