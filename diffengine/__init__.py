@@ -38,6 +38,13 @@ parser.add_argument('--auth', action='store_true')
 
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
+if DATABASE_URL is not None:
+    print("Database defined, connecting to ")
+    db = connect(DATABASE_URL)
+else:
+    print("No database defined, using SQLite")
+    db = SqliteDatabase(None)
+
 home = None
 config = {}
 browser = None
@@ -437,14 +444,8 @@ def home_path(rel_path):
 def setup_db():
     global db
 
-    if DATABASE_URL is not None:
-        logging.info("Database defined, connecting to it")
-        db = connect(DATABASE_URL)
-    else:
-        db_file = config.get('db', home_path('diffengine.db'))
-        db = SqliteDatabase(db_file)
-        logging.info("No database defined, using SQLite.")
-        logging.debug("connecting to db %s", db_file)
+    if DATABASE_URL is None:
+        db.init()
 
     db.connect()
     db.create_tables([Feed, Entry, FeedEntry, EntryVersion, Diff], safe=True)
