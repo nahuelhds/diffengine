@@ -8,9 +8,7 @@ UA = "diffengine/0.2.6 (+https://github.com/docnow/diffengine)"
 import os
 import re
 import sys
-import json
 import time
-import yaml
 import bleach
 import codecs
 import jinja2
@@ -19,30 +17,28 @@ import tweepy
 import logging
 import htmldiff
 import requests
-import selenium
 import feedparser
-import subprocess
 import readability
 import unicodedata
 import argparse
+import yaml
 
+from datetime import datetime
+from dotenv import load_dotenv
+from envyaml import EnvYAML
 from peewee import *
 from playhouse.migrate import SqliteMigrator, migrate
-from datetime import datetime, timedelta
 from selenium import webdriver
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
+
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--add', action='store_true')
+parser.add_argument('--auth', action='store_true')
 
 home = None
 config = {}
 db = SqliteDatabase(None)
 browser = None
-
-# TODO: generate command line for Twitter consumer keys definition
-# TODO: generate command line for individual feed addition, reuse get_initial_config
 
 class BaseModel(Model):
     class Meta:
@@ -360,29 +356,36 @@ class Diff(BaseModel):
 def setup_logging():
     verbose = config.get('verbose', False)
     path = config.get('log', home_path('diffengine.log'))
+
+    format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    log_formatter = logging.Formatter(format)
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        format=format,
         filename=path,
         filemode="a"
     )
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(log_formatter)
+    logging.getLogger().addHandler(console_handler)
+
     logging.getLogger("readability.readability").setLevel(logging.WARNING)
     logging.getLogger("tweepy.binder").setLevel(logging.WARNING)
 
 def load_config(prompt=True):
     global config
     config_file = os.path.join(home, "config.yaml")
-    if os.path.isfile(config_file):
-        config = yaml.load(open(config_file), Loader=yaml.FullLoader)
-    else:
+    if not os.path.isfile(config_file):
         if not os.path.isdir(home):
             os.makedirs(home)
         if prompt:
-            config = get_initial_config()
-        yaml.dump(config, open(config_file, "w"), default_flow_style=False)
-    return config
+            build_initial_config(config_file)
 
-def get_initial_config():
+    config = EnvYAML(config_file)
+
+
+def build_initial_config(config_file):
     config = {"feeds": []}
 
     while len(config['feeds']) == 0:
@@ -391,16 +394,19 @@ def get_initial_config():
         if len(feed.entries) == 0:
             print("Oops, that doesn't look like an RSS or Atom feed.")
         else:
+            name = input("What is the name for this feed?")
             config['feeds'].append({
                 "url": url,
-                "name": feed.feed.title
+                "name": name if name == '' else feed.feed.title
             })
 
     answer = input("Would you like to set up tweeting edits? [Y/n] ")
     if answer.lower() == "y":
+        twitter_consumer_key = os.getenv("TWITTER_CONSUMER_KEY")
+        twitter_consumer_secret = os.getenv("TWITTER_CONSUMER_SECRET")
         print("Go to https://apps.twitter.com and create an application.")
-        consumer_key = input("What is the consumer key? ")
-        consumer_secret = input("What is the consumer secret? ")
+        consumer_key = twitter_consumer_key if twitter_consumer_key is not None else input("What is the consumer key? ")
+        consumer_secret = twitter_consumer_secret if twitter_consumer_secret is not None else input("What is the consumer secret? ")
         auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
         auth.secure = True
         auth_url = auth.get_authorization_url()
@@ -417,10 +423,11 @@ def get_initial_config():
             "access_token_secret": token[1]
         }
 
+    yaml.dump(config, open(config_file, "w"), default_flow_style=False)
     print("Saved your configuration in %s/config.yaml" % home.rstrip("/"))
     print("Fetching initial set of entries.")
 
-    return config
+
 
 def home_path(rel_path):
     return os.path.join(home, rel_path)
@@ -442,16 +449,22 @@ def setup_db():
 def setup_browser():
     global browser
 
-    if not shutil.which('geckodriver'):
-        sys.exit("Please install geckodriver and make sure it is in your PATH.")
+    executable_path = 'chromedriver' if os.environ.get("CHROMEDRIVER_PATH") is None else os.environ.get("CHROMEDRIVER_PATH")
+    binary_location = '' if os.environ.get("GOOGLE_CHROME_BIN") is None else os.environ.get("GOOGLE_CHROME_BIN")
 
-    opts = FirefoxOptions()
-    opts.headless = True
-    browser = webdriver.Firefox(options=opts)
+    if not shutil.which(executable_path):
+        sys.exit("Please install chromedriver and make sure it is in your PATH.")
+
+    options = webdriver.ChromeOptions()
+    options.binary_location = binary_location
+    options.add_argument("--headless")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--no-sandbox")
+    browser = webdriver.Chrome(executable_path=executable_path, options=options)
 
 
 def tweet_entry(entry, token):
-    if 'twitter' not in config:
+    if config.get('twitter', None) is None:
         logging.debug("twitter not configured")
         return
     elif not token:
@@ -477,7 +490,7 @@ def tweet_entry(entry, token):
 
 
 def tweet_diff(diff, token):
-    if 'twitter' not in config:
+    if config.get('twitter', None) is None:
         logging.debug("twitter not configured")
         return
     elif not token:
@@ -556,6 +569,8 @@ def build_text_from_changes(lang, url_changed, title_changed, summary_changed):
 def init(new_home, prompt=True):
     global home
     home = new_home
+    env_path = "%s/.env" % new_home
+    load_dotenv(dotenv_path=env_path)
     load_config(prompt)
     setup_browser()
     setup_logging()
@@ -656,48 +671,23 @@ def _get(url, allow_redirects=True):
         allow_redirects=allow_redirects
     )
 
-def add_rss():
+def get_auth_link():
     global home
     home = os.getcwd()
+    env_path = "%s/.env" % home
+    load_dotenv(dotenv_path=env_path)
     config = load_config(True)
-
-    # Add new rss
-    url = input("What RSS/Atom feed would you like to monitor?")
-    feed = feedparser.parse(url)
-    if len(feed.entries) == 0:
-        print("Oops, that doesn't look like an RSS or Atom feed.")
-        return
-
-    name = input("What is the name for this feed?")
-
-    feed = {
-        "url": url,
-        "name": name
-    }
-
     twitter = config['twitter']
     auth = tweepy.OAuthHandler(twitter['consumer_key'], twitter['consumer_secret'])
     auth.secure = True
     auth_url = auth.get_authorization_url()
     input("Log in to https://twitter.com as the user you want to tweet as and hit enter.")
-    input("Visit %s in your browser and hit enter." % auth_url)
-    pin = input("What is your PIN: ")
-    token = auth.get_access_token(verifier=pin)
-    feed["twitter"] = {
-        "access_token": token[0],
-        "access_token_secret": token[1]
-    }
-
-    config['feeds'].append(feed)
-
-    # Save the file
-    config_file = os.path.join(home, "config.yaml")
-    yaml.dump(config, open(config_file, "w"), default_flow_style=False)
+    print("This is the auth link %s" % auth_url)
 
 if __name__ == "__main__":
     options = parser.parse_args()
-    if options.add:
-        add_rss()
+    if options.auth:
+        get_auth_link()
     else:
         main()
 
