@@ -2,7 +2,7 @@ bleach
 envyaml>=0.1912
 feedparser
 genshi
--e https://github.com/edsu/htmldiff/tarball/master#egg=htmldiff-0.2
+https://github.com/edsu/htmldiff/tarball/master#egg=htmldiff-0.2
 jinja2
 peewee>=3.0
 pillow
