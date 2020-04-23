@@ -33,21 +33,32 @@ from selenium import webdriver
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from playhouse.db_url import connect
 
+def get_home():
+    if len(sys.argv) == 1:
+        return os.getcwd()
+    else:
+        return sys.argv[1]
+
+home = get_home()
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--auth', action='store_true')
 
-DATABASE_URL = os.environ.get('DATABASE_URL')
+env_path = "%s/.env" % home
+load_dotenv(dotenv_path=env_path)
 
+DATABASE_URL = os.getenv('DATABASE_URL')
 if DATABASE_URL is not None:
-    print("Database defined, connecting to ")
+    print("defined database. Using PostgreSQL.")
     db = connect(DATABASE_URL)
 else:
-    print("No database defined, using SQLite")
+    print("no database defined, using SQLite.")
     db = SqliteDatabase(None)
 
-home = None
 config = {}
 browser = None
+
+ERROR_STATUS_DUPLICATED = 187
 
 class BaseModel(Model):
     class Meta:
@@ -55,8 +66,8 @@ class BaseModel(Model):
 
 
 class Feed(BaseModel):
-    url = CharField(primary_key=True)
-    name = CharField()
+    url = TextField(primary_key=True)
+    name = TextField()
     created = DateTimeField(default=datetime.utcnow)
 
     @property
@@ -102,7 +113,7 @@ class Feed(BaseModel):
 
 
 class Entry(BaseModel):
-    url = CharField()
+    url = TextField()
     created = DateTimeField(default=datetime.utcnow)
     checked = DateTimeField(default=datetime.utcnow)
     tweet_status_id = BigIntegerField(null=True)
@@ -156,7 +167,6 @@ class Entry(BaseModel):
         If a new version was found it will be returned, otherwise None will
         be returned.
         """
-
         # make sure we don't go too fast
         time.sleep(1)
 
@@ -229,11 +239,11 @@ class FeedEntry(BaseModel):
 
 
 class EntryVersion(BaseModel):
-    title = CharField()
-    url = CharField(index=True)
-    summary = CharField()
+    title = TextField()
+    url = TextField(index=True)
+    summary = TextField()
     created = DateTimeField(default=datetime.utcnow)
-    archive_url = CharField(null=True)
+    archive_url = TextField(null=True)
     entry = ForeignKeyField(Entry, backref='versions')
     tweet_status_id = BigIntegerField(null=True)
 
@@ -451,17 +461,13 @@ def setup_db():
     db.connect()
     db.create_tables([Feed, Entry, FeedEntry, EntryVersion, Diff], safe=True)
 
-    try:
-        # If it's local, it needs to be init
-        if DATABASE_URL is not None:
-            migrator = PostgresqlMigrator(db)
-        else:
+    # If it's local, it needs to be init
+    if DATABASE_URL is None:
+        try:
             migrator = SqliteMigrator(db)
-        migrate(migrator.add_index('entryversion', ('url',), False),)
-    except OperationalError as e:
-        logging.debug(e)
-    except ProgrammingError as e:
-        logging.debug(e)
+            migrate(migrator.add_index('entryversion', ('url',), False),)
+        except OperationalError as e:
+            logging.debug(e)
 
 
 def setup_browser():
@@ -503,6 +509,10 @@ def tweet_entry(entry, token):
         entry.tweet_status_id = status.id
         logging.info("tweeted %s", status.text)
         entry.save()
+    except tweepy.TweepError as e:
+        if e.api_code != ERROR_STATUS_DUPLICATED:
+            raise e
+        logging.warning("status already exists.")
     except Exception as e:
         logging.error("unable to tweet: %s", e)
 
@@ -596,11 +606,7 @@ def init(new_home, prompt=True):
     setup_db()
 
 def main():
-    if len(sys.argv) == 1:
-        home = os.getcwd()
-    else:
-        home = sys.argv[1]
-
+    global home
     init(home)
     start_time = datetime.utcnow()
     logging.info("starting up with home=%s", home)

@@ -13,3 +13,4 @@ build
 Pip*
 .venv
 venv
+.env
