@@ -541,7 +541,7 @@ def tweet_diff(diff, token):
 
     try:
         status = twitter.update_with_media(diff.thumbnail_path, status=text, in_reply_to_status_id=thread_status_id_str)
-        logging.info("tweeted %s", status.text)
+        logging.info("tweeted diff https://twitter.com/%s/status/%s" % (auth.get_username(), status.id_str))
         # Save the tweet status id inside the new version
         diff.new.tweet_status_id_str = status.id_str
         diff.new.save()
