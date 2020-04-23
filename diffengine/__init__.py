@@ -28,7 +28,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from envyaml import EnvYAML
 from peewee import *
-from playhouse.migrate import SqliteMigrator, migrate
+from playhouse.migrate import SqliteMigrator, PostgresqlMigrator, migrate
 from selenium import webdriver
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from playhouse.db_url import connect
@@ -451,13 +451,15 @@ def setup_db():
     db.connect()
     db.create_tables([Feed, Entry, FeedEntry, EntryVersion, Diff], safe=True)
 
-    # If it's local, it needs to be init
-    if DATABASE_URL is None:
-        try:
+    try:
+        # If it's local, it needs to be init
+        if DATABASE_URL is not None:
+            migrator = PostgresqlMigrator(db)
+        else:
             migrator = SqliteMigrator(db)
-            migrate(migrator.add_index('entryversion', ('url',), False),)
-        except OperationalError as e:
-            logging.debug(e)
+        migrate(migrator.add_index('entryversion', ('url',), False),)
+    except OperationalError as e:
+        logging.debug(e)
 
 
 def setup_browser():
