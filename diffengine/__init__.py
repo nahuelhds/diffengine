@@ -22,23 +22,43 @@ import readability
 import unicodedata
 import argparse
 import yaml
+import psycopg2
 
 from datetime import datetime
 from dotenv import load_dotenv
 from envyaml import EnvYAML
 from peewee import *
-from playhouse.migrate import SqliteMigrator, migrate
+from playhouse.migrate import SqliteMigrator, PostgresqlMigrator, migrate
 from selenium import webdriver
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+from playhouse.db_url import connect
 
+def get_home():
+    if len(sys.argv) == 1:
+        return os.getcwd()
+    else:
+        return sys.argv[1]
+
+home = get_home()
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--auth', action='store_true')
 
-home = None
+env_path = "%s/.env" % home
+load_dotenv(dotenv_path=env_path)
+
+DATABASE_URL = os.getenv('DATABASE_URL')
+if DATABASE_URL is not None:
+    print("defined database. Using PostgreSQL.")
+    db = connect(DATABASE_URL)
+else:
+    print("no database defined, using SQLite.")
+    db = SqliteDatabase(None)
+
 config = {}
-db = SqliteDatabase(None)
 browser = None
+
+ERROR_STATUS_DUPLICATED = 187
 
 class BaseModel(Model):
     class Meta:
@@ -46,8 +66,8 @@ class BaseModel(Model):
 
 
 class Feed(BaseModel):
-    url = CharField(primary_key=True)
-    name = CharField()
+    url = TextField(primary_key=True)
+    name = TextField()
     created = DateTimeField(default=datetime.utcnow)
 
     @property
@@ -93,7 +113,7 @@ class Feed(BaseModel):
 
 
 class Entry(BaseModel):
-    url = CharField()
+    url = TextField()
     created = DateTimeField(default=datetime.utcnow)
     checked = DateTimeField(default=datetime.utcnow)
     tweet_status_id = BigIntegerField(null=True)
@@ -147,7 +167,6 @@ class Entry(BaseModel):
         If a new version was found it will be returned, otherwise None will
         be returned.
         """
-
         # make sure we don't go too fast
         time.sleep(1)
 
@@ -220,11 +239,11 @@ class FeedEntry(BaseModel):
 
 
 class EntryVersion(BaseModel):
-    title = CharField()
-    url = CharField(index=True)
-    summary = CharField()
+    title = TextField()
+    url = TextField(index=True)
+    summary = TextField()
     created = DateTimeField(default=datetime.utcnow)
-    archive_url = CharField(null=True)
+    archive_url = TextField(null=True)
     entry = ForeignKeyField(Entry, backref='versions')
     tweet_status_id = BigIntegerField(null=True)
 
@@ -434,16 +453,21 @@ def home_path(rel_path):
 
 def setup_db():
     global db
-    db_file = config.get('db', home_path('diffengine.db'))
-    logging.debug("connecting to db %s", db_file)
-    db.init(db_file)
+
+    # If it's local, it needs to be init
+    if DATABASE_URL is None:
+        db.init()
+
     db.connect()
     db.create_tables([Feed, Entry, FeedEntry, EntryVersion, Diff], safe=True)
-    try:
-        migrator = SqliteMigrator(db)
-        migrate(migrator.add_index('entryversion', ('url',), False),)
-    except OperationalError as e:
-        logging.debug(e)
+
+    # If it's local, it needs to be init
+    if DATABASE_URL is None:
+        try:
+            migrator = SqliteMigrator(db)
+            migrate(migrator.add_index('entryversion', ('url',), False),)
+        except OperationalError as e:
+            logging.debug(e)
 
 
 def setup_browser():
@@ -485,6 +509,10 @@ def tweet_entry(entry, token):
         entry.tweet_status_id = status.id
         logging.info("tweeted %s", status.text)
         entry.save()
+    except tweepy.TweepError as e:
+        if e.api_code != ERROR_STATUS_DUPLICATED:
+            raise e
+        logging.warning("status already exists.")
     except Exception as e:
         logging.error("unable to tweet: %s", e)
 
@@ -574,14 +602,11 @@ def init(new_home, prompt=True):
     load_config(prompt)
     setup_browser()
     setup_logging()
+
     setup_db()
 
 def main():
-    if len(sys.argv) == 1:
-        home = os.getcwd()
-    else:
-        home = sys.argv[1]
-
+    global home
     init(home)
     start_time = datetime.utcnow()
     logging.info("starting up with home=%s", home)
@@ -683,6 +708,11 @@ def get_auth_link():
     auth_url = auth.get_authorization_url()
     input("Log in to https://twitter.com as the user you want to tweet as and hit enter.")
     print("This is the auth link %s" % auth_url)
+    pin = input("What is your PIN: ")
+    token = auth.get_access_token(verifier=pin)
+    print("These are your access token and secret. Do not share them with anyone!")
+    print("access_token\n%s\n" % token[0])
+    print("access_token_secret\n%s" % token[1])
 
 if __name__ == "__main__":
     options = parser.parse_args()
@@ -690,4 +720,5 @@ if __name__ == "__main__":
         get_auth_link()
     else:
         main()
+    sys.exit("Finishing diffengine")
 

@@ -6,6 +6,7 @@ https://github.com/edsu/htmldiff/tarball/master#egg=htmldiff-0.2
 jinja2
 peewee>=3.0
 pillow
+psycopg2-binary==2.8.5
 pytest
 python-dotenv>=0.13.0
 readability-lxml
