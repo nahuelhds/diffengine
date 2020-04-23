@@ -460,6 +460,8 @@ def setup_db():
         migrate(migrator.add_index('entryversion', ('url',), False),)
     except OperationalError as e:
         logging.debug(e)
+    except ProgrammingError as e:
+        logging.debug(e)
 
 
 def setup_browser():
