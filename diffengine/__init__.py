@@ -58,9 +58,6 @@ else:
 config = {}
 browser = None
 
-ERROR_STATUS_DUPLICATED = 187
-ERROR_DAILY_LIMIT = 185
-
 class BaseModel(Model):
     class Meta:
         database = db
@@ -510,13 +507,6 @@ def tweet_entry(entry, token):
         entry.tweet_status_id_str = status.id_str
         logging.info("tweeted %s", status.text)
         entry.save()
-    except tweepy.TweepError as e:
-        if e.api_code == ERROR_STATUS_DUPLICATED:
-            logging.warning("status already exists.")
-        elif e.api_code == ERROR_DAILY_LIMIT:
-            logging.warning("daily limit for updates reached.")
-        else:
-            raise e
     except Exception as e:
         logging.error("unable to tweet: %s", e)
 
