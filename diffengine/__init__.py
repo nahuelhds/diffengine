@@ -97,10 +97,6 @@ class Feed(BaseModel):
             if created:
                 FeedEntry.create(entry=entry, feed=self)
                 logging.info("found new entry: %s", e.link)
-
-                if 'twitter' in f:
-                    tweet_entry(entry, f['twitter'])
-
                 count += 1
             elif len(entry.feeds.where(Feed.url == self.url)) == 0:
                 FeedEntry.create(entry=entry, feed=self)
@@ -218,9 +214,6 @@ class Entry(BaseModel):
                     new = None
             else:
                 logging.debug("found first version: %s", self.url)
-                # Save the entry status_id inside the first entryVersion
-                new.tweet_status_id_str = self.tweet_status_id_str
-                new.save()
         else:
             logging.debug("content hasn't changed %s", self.url)
 
@@ -485,7 +478,7 @@ def setup_browser():
     browser = webdriver.Chrome(executable_path=executable_path, options=options)
 
 
-def tweet_entry(entry, token):
+def tweet_thread(entry, first_version, token):
     if config.get('twitter', None) is None:
         logging.debug("twitter not configured")
         return
@@ -502,13 +495,14 @@ def tweet_entry(entry, token):
     auth.set_access_token(token['access_token'], token['access_token_secret'])
     twitter = tweepy.API(auth)
 
-    try:
-        status = twitter.update_status(entry.url)
-        entry.tweet_status_id_str = status.id_str
-        logging.info("tweeted %s", status.text)
-        entry.save()
-    except Exception as e:
-        logging.error("unable to tweet: %s", e)
+    status = twitter.update_status(entry.url)
+    entry.tweet_status_id_str = status.id_str
+    entry.save()
+
+    # Save the entry status_id inside the first entryVersion
+    first_version.tweet_status_id_str = status.id_str
+    first_version.save()
+    return status.id_str
 
 
 def tweet_diff(diff, token):
@@ -533,8 +527,20 @@ def tweet_diff(diff, token):
 
     text = build_text(diff, config['lang'])
 
+    # Check if the thread exists
+    thread_status_id_str = None
+    if diff.old.entry.tweet_status_id_str is None:
+        try:
+            thread_status_id_str = tweet_thread(diff.old.entry, diff.old, token)
+            logging.info("created thread https://twitter/%s/status/%s" % (auth.get_username(), thread_status_id_str))
+        except Exception as e:
+            logging.error("could not create thread on entry %s" % diff.old.entry.url, e)
+    else:
+        thread_status_id_str = diff.old.tweet_status_id_str
+
+
     try:
-        status = twitter.update_with_media(diff.thumbnail_path, status=text, in_reply_to_status_id=diff.old.tweet_status_id_str)
+        status = twitter.update_with_media(diff.thumbnail_path, status=text, in_reply_to_status_id=thread_status_id_str)
         logging.info("tweeted %s", status.text)
         # Save the tweet status id inside the new version
         diff.new.tweet_status_id_str = status.id_str
