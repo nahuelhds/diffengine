@@ -534,7 +534,7 @@ def tweet_diff(diff, token):
     text = build_text(diff, config['lang'])
 
     try:
-        status = twitter.update_with_media(diff.thumbnail_path, status=text, in_reply_to_status_id_str=diff.old.tweet_status_id_str)
+        status = twitter.update_with_media(diff.thumbnail_path, status=text, in_reply_to_status_id=diff.old.tweet_status_id_str)
         logging.info("tweeted %s", status.text)
         # Save the tweet status id inside the new version
         diff.new.tweet_status_id_str = status.id_str
