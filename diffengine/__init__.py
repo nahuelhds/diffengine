@@ -116,7 +116,7 @@ class Entry(BaseModel):
     url = TextField()
     created = DateTimeField(default=datetime.utcnow)
     checked = DateTimeField(default=datetime.utcnow)
-    tweet_status_id = BigIntegerField(null=True)
+    tweet_status_id_str = CharField(null=True)
 
     @property
     def feeds(self):
@@ -221,7 +221,7 @@ class Entry(BaseModel):
             else:
                 logging.debug("found first version: %s", self.url)
                 # Save the entry status_id inside the first entryVersion
-                new.tweet_status_id = self.tweet_status_id
+                new.tweet_status_id_str = self.tweet_status_id_str
                 new.save()
         else:
             logging.debug("content hasn't changed %s", self.url)
@@ -245,7 +245,7 @@ class EntryVersion(BaseModel):
     created = DateTimeField(default=datetime.utcnow)
     archive_url = TextField(null=True)
     entry = ForeignKeyField(Entry, backref='versions')
-    tweet_status_id = BigIntegerField(null=True)
+    tweet_status_id_str = CharField(null=True)
 
     @property
     def diff(self):
@@ -494,7 +494,7 @@ def tweet_entry(entry, token):
     elif not token:
         logging.debug("access token/secret not set up for feed")
         return
-    elif entry.tweet_status_id:
+    elif entry.tweet_status_id_str:
         logging.warning("entry %s has already been tweeted", entry.id)
         return
 
@@ -506,7 +506,7 @@ def tweet_entry(entry, token):
 
     try:
         status = twitter.update_status(entry.url)
-        entry.tweet_status_id = status.id
+        entry.tweet_status_id_str = status.id_str
         logging.info("tweeted %s", status.text)
         entry.save()
     except tweepy.TweepError as e:
@@ -540,10 +540,10 @@ def tweet_diff(diff, token):
     text = build_text(diff, config['lang'])
 
     try:
-        status = twitter.update_with_media(diff.thumbnail_path, status=text, in_reply_to_status_id=diff.old.tweet_status_id)
+        status = twitter.update_with_media(diff.thumbnail_path, status=text, in_reply_to_status_id_str=diff.old.tweet_status_id_str)
         logging.info("tweeted %s", status.text)
         # Save the tweet status id inside the new version
-        diff.new.tweet_status_id = status.id
+        diff.new.tweet_status_id_str = status.id_str
         diff.new.save()
         # And save that the diff has been tweeted
         diff.tweeted = datetime.utcnow()
