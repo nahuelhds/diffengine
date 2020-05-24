@@ -1,14 +1,12 @@
 import logging
 import os
 import re
-
 import yaml
-from selenium import webdriver
-
 import setup
 import pytest
 import shutil
 
+from selenium import webdriver
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 from unittest.mock import PropertyMock
@@ -19,8 +17,6 @@ from diffengine import (
     EntryVersion,
     Entry,
     FeedEntry,
-    home_path,
-    load_config,
     setup_browser,
     UnknownWebdriverError,
     process_entry,
@@ -28,12 +24,13 @@ from diffengine import (
     TwitterHandler,
     SendgridHandler,
 )
+from diffengine.config import load_config
+from diffengine.text_builder import build_text
 from exceptions.sendgrid import (
     ConfigNotFoundError as SGConfigNotFoundError,
     AlreadyEmailedError as SGAlreadyEmailedError,
     ArchiveUrlNotFoundError as SGArchiveNotFoundError,
 )
-from diffengine.text_builder import build_text
 from exceptions.twitter import (
     ConfigNotFoundError,
     TokenNotFoundError,
@@ -179,7 +176,7 @@ class EnvVarsTest(TestCase):
         private_value = "private value"
 
         # create dot env that that will read
-        dotenv_file = open(home_path(".env"), "w+")
+        dotenv_file = open(os.path.join(test_home, ".env"), "w+")
         dotenv_file.write("PRIVATE_VAR=%s\n" % private_value)
         dotenv_file.close()
 
@@ -187,7 +184,7 @@ class EnvVarsTest(TestCase):
         test_config = {
             "example": {"private_value": private_yaml_key, "public_value": public_value}
         }
-        config_file = home_path("config.yaml")
+        config_file = os.path.join(test_home, "config.yaml")
         yaml.dump(test_config, open(config_file, "w"), default_flow_style=False)
 
         # test!

@@ -8,23 +8,30 @@ UA = "diffengine/0.2.7 (+https://github.com/docnow/diffengine)"
 import os
 import re
 import sys
-import json
 import time
-import yaml
 import bleach
 import codecs
 import jinja2
 import shutil
-import tweepy
 import logging
 import argparse
 import requests
-import selenium
 import htmldiff2
 import feedparser
-import subprocess
 import readability
 import unicodedata
+
+from diffengine.config import load_config
+from diffengine.sendgrid import SendgridHandler
+from diffengine.twitter import TwitterHandler
+from diffengine.utils import request_pin_to_user_and_get_token
+
+from exceptions.webdriver import UnknownWebdriverError
+from exceptions.sendgrid import (
+    ConfigNotFoundError as SGConfigNotFoundError,
+    SendgridError,
+)
+from exceptions.twitter import ConfigNotFoundError, TwitterError
 
 from peewee import *
 from playhouse.migrate import SqliteMigrator, migrate
@@ -33,16 +40,6 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
-from envyaml import EnvYAML
-
-from exceptions.webdriver import UnknownWebdriverError
-from exceptions.twitter import ConfigNotFoundError, TwitterError
-from diffengine.twitter import TwitterHandler
-from exceptions.sendgrid import (
-    ConfigNotFoundError as SGConfigNotFoundError,
-    SendgridError,
-)
-from diffengine.sendgrid import SendgridHandler
 
 home = None
 config = {}
@@ -301,7 +298,7 @@ class Diff(BaseModel):
     @property
     def html_path(self):
         # use prime number to spread across directories
-        path = home_path("diffs/%s/%s.html" % ((self.id % 257), self.id))
+        path = os.path.join(home, "diffs/%s/%s.html" % ((self.id % 257), self.id))
         if not os.path.isdir(os.path.dirname(path)):
             os.makedirs(os.path.dirname(path))
         return path
@@ -376,7 +373,7 @@ def setup_logging(log_file=True, log_console=False):
 
     handlers = []
     if log_file:
-        filename = config.get("log", home_path("diffengine.log"))
+        filename = config.get("log", os.path.join(home, "diffengine.log"))
         file_handler = logging.FileHandler(filename=filename, mode="a")
         file_handler.setFormatter(log_formatter)
         handlers.append(file_handler)
@@ -392,74 +389,10 @@ def setup_logging(log_file=True, log_console=False):
         logging.getLogger("tweepy.binder").setLevel(logging.WARNING)
 
 
-def load_config(home, prompt=True):
-    config = {}
-    config_file = os.path.join(home, "config.yaml")
-    env_file = home_path(".env")
-    if os.path.isfile(config_file):
-        logging.debug("config exists at file %s" % config_file)
-        config = EnvYAML(
-            config_file, env_file=env_file if os.path.isfile(env_file) else None
-        )
-    else:
-        logging.debug("creating config to file %s" % config_file)
-        if not os.path.isdir(home):
-            os.makedirs(home)
-        if prompt:
-            config = get_initial_config(home)
-        yaml.dump(config, open(config_file, "w"), default_flow_style=False)
-    return config
-
-
-def get_initial_config(home):
-    config = {"feeds": []}
-
-    while len(config["feeds"]) == 0:
-        url = input("What RSS/Atom feed would you like to monitor? ")
-        feed = feedparser.parse(url)
-        if len(feed.entries) == 0:
-            print("Oops, that doesn't look like an RSS or Atom feed.")
-        else:
-            config["feeds"].append({"url": url, "name": feed.feed.title})
-
-    answer = input("Would you like to set up tweeting edits? [Y/n] ") or "Y"
-    if answer.lower() == "y":
-        print("Go to https://apps.twitter.com and create an application.")
-        consumer_key = input("What is the consumer key? ")
-        consumer_secret = input("What is the consumer secret? ")
-
-        token = request_pin_to_user_and_get_token(consumer_key, consumer_secret)
-
-        config["twitter"] = {
-            "consumer_key": consumer_key,
-            "consumer_secret": consumer_secret,
-        }
-        config["feeds"][0]["twitter"] = {
-            "access_token": token[0],
-            "access_token_secret": token[1],
-        }
-
-    answer = input("Would you like to set up emailing edits? [Y/n] ")
-    if answer.lower() == "y":
-        print("Go to https://app.sendgrid.com/ and get an API key.")
-        api_key = input("What is the API key? ")
-        sender = input("What email address is sending the email? ")
-        receivers = input("Who are receiving the emails?  ")
-
-        config["sendgrid"] = {"api_key": api_key}
-
-        config["feeds"][0]["sendgrid"] = {"sender": sender, "receivers": receivers}
-
-    print("Saved your configuration in %s/config.yaml" % home.rstrip("/"))
-    print("Fetching initial set of entries.")
-
-    return config
-
-
 def get_auth_link_and_show_token():
     global home
     home = os.getcwd()
-    config = load_config(True)
+    config = load_config(home, True)
     twitter = config["twitter"]
     token = request_pin_to_user_and_get_token(
         twitter["consumer_key"], twitter["consumer_secret"]
@@ -469,25 +402,9 @@ def get_auth_link_and_show_token():
     print("ACCESS_TOKEN_SECRET\n%s\n" % token[1])
 
 
-def request_pin_to_user_and_get_token(consumer_key, consumer_secret):
-    auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
-    auth.secure = True
-    auth_url = auth.get_authorization_url()
-    input(
-        "Log in to https://twitter.com as the user you want to tweet as and hit enter."
-    )
-    input("Visit %s in your browser and hit enter." % auth_url)
-    pin = input("What is your PIN: ")
-    return auth.get_access_token(verifier=pin)
-
-
-def home_path(rel_path):
-    return os.path.join(home, rel_path)
-
-
 def setup_db():
-    global db
-    db_file = config.get("db", home_path("diffengine.db"))
+    global home, db
+    db_file = config.get("db", os.path.join(home, "diffengine.db"))
     logging.debug("connecting to db %s", db_file)
     db.init(db_file)
     db.connect()
