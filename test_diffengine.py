@@ -46,7 +46,8 @@ if os.path.isdir("test"):
     shutil.rmtree("test")
 
 # set things up but disable prompting for initial feed
-init("test", prompt=False)
+test_home = "test"
+init(test_home, prompt=False)
 
 # the sequence of these tests is significant
 
@@ -190,7 +191,7 @@ class EnvVarsTest(TestCase):
         yaml.dump(test_config, open(config_file, "w"), default_flow_style=False)
 
         # test!
-        new_config = load_config()
+        new_config = load_config(test_home)
         assert new_config["example"]["public_value"] == public_value
         assert new_config["example"]["private_value"] != private_yaml_key
         assert new_config["example"]["private_value"] == private_value

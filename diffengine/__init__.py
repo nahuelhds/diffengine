@@ -392,37 +392,26 @@ def setup_logging(log_file=True, log_console=False):
         logging.getLogger("tweepy.binder").setLevel(logging.WARNING)
 
 
-def load_config(prompt=True):
-    global config
+def load_config(home, prompt=True):
+    config = {}
     config_file = os.path.join(home, "config.yaml")
     env_file = home_path(".env")
     if os.path.isfile(config_file):
+        logging.debug("config exists at file %s" % config_file)
         config = EnvYAML(
             config_file, env_file=env_file if os.path.isfile(env_file) else None
         )
     else:
+        logging.debug("creating config to file %s" % config_file)
         if not os.path.isdir(home):
             os.makedirs(home)
         if prompt:
-            config = get_initial_config()
+            config = get_initial_config(home)
         yaml.dump(config, open(config_file, "w"), default_flow_style=False)
     return config
 
 
-def get_auth_link_and_show_token():
-    global home
-    home = os.getcwd()
-    config = load_config(True)
-    twitter = config["twitter"]
-    token = request_pin_to_user_and_get_token(
-        twitter["consumer_key"], twitter["consumer_secret"]
-    )
-    print("\nThese are your access token and secret.\nDO NOT SHARE THEM WITH ANYONE!\n")
-    print("ACCESS_TOKEN\n%s\n" % token[0])
-    print("ACCESS_TOKEN_SECRET\n%s\n" % token[1])
-
-
-def get_initial_config():
+def get_initial_config(home):
     config = {"feeds": []}
 
     while len(config["feeds"]) == 0:
@@ -465,6 +454,19 @@ def get_initial_config():
     print("Fetching initial set of entries.")
 
     return config
+
+
+def get_auth_link_and_show_token():
+    global home
+    home = os.getcwd()
+    config = load_config(True)
+    twitter = config["twitter"]
+    token = request_pin_to_user_and_get_token(
+        twitter["consumer_key"], twitter["consumer_secret"]
+    )
+    print("\nThese are your access token and secret.\nDO NOT SHARE THEM WITH ANYONE!\n")
+    print("ACCESS_TOKEN\n%s\n" % token[0])
+    print("ACCESS_TOKEN_SECRET\n%s\n" % token[1])
 
 
 def request_pin_to_user_and_get_token(consumer_key, consumer_secret):
@@ -531,9 +533,9 @@ def setup_browser(engine="geckodriver", executable_path=None, binary_location=""
 
 
 def init(new_home, prompt=True):
-    global home, browser
+    global home, config, browser
     home = new_home
-    load_config(prompt)
+    config = load_config(home, prompt)
     try:
         # by defualt keep using geckodriver
         engine = config.get("webdriver.engine", "geckodriver")
