@@ -1,11 +1,10 @@
 import logging
 import os
-
 import feedparser
 import yaml
-from envyaml import EnvYAML
 
 from diffengine.utils import request_pin_to_user_and_get_token
+from envyaml import EnvYAML
 
 
 def load_config(home, prompt=True):
