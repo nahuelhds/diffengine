@@ -26,24 +26,27 @@ from diffengine import (
 )
 from diffengine.config import load_config
 from diffengine.text_builder import build_text
+from diffengine.utils import generate_config
 from exceptions.sendgrid import (
-    ConfigNotFoundError as SGConfigNotFoundError,
-    AlreadyEmailedError as SGAlreadyEmailedError,
-    ArchiveUrlNotFoundError as SGArchiveNotFoundError,
+    SendgridConfigNotFoundError,
+    AlreadyEmailedError,
+    SendgridArchiveUrlNotFoundError,
 )
 from exceptions.twitter import (
-    ConfigNotFoundError,
+    TwitterConfigNotFoundError,
     TokenNotFoundError,
     AlreadyTweetedError,
-    AchiveUrlNotFoundError,
+    TwitterAchiveUrlNotFoundError,
     UpdateStatusError,
 )
 
-if os.path.isdir("test"):
-    shutil.rmtree("test")
-
-# set things up but disable prompting for initial feed
 test_home = "test"
+
+if os.path.isdir(test_home):
+    shutil.rmtree(test_home)
+
+generate_config(test_home, {"db": "sqlite:///:memory:"})
+# set things up but disable prompting for initial feed
 init(test_home, prompt=False)
 
 # the sequence of these tests is significant
@@ -184,8 +187,7 @@ class EnvVarsTest(TestCase):
         test_config = {
             "example": {"private_value": private_yaml_key, "public_value": public_value}
         }
-        config_file = os.path.join(test_home, "config.yaml")
-        yaml.dump(test_config, open(config_file, "w"), default_flow_style=False)
+        generate_config(test_home, test_config)
 
         # test!
         new_config = load_config(test_home)
@@ -365,13 +367,17 @@ class TwitterHandlerTest(TestCase):
         logging.disable(logging.NOTSET)
 
     def test_raises_if_no_config_set(self):
-        self.assertRaises(ConfigNotFoundError, TwitterHandler, None, None)
-        self.assertRaises(ConfigNotFoundError, TwitterHandler, "myConsumerKey", None)
-        self.assertRaises(ConfigNotFoundError, TwitterHandler, None, "myConsumerSecret")
+        self.assertRaises(TwitterConfigNotFoundError, TwitterHandler, None, None)
+        self.assertRaises(
+            TwitterConfigNotFoundError, TwitterHandler, "myConsumerKey", None
+        )
+        self.assertRaises(
+            TwitterConfigNotFoundError, TwitterHandler, None, "myConsumerSecret"
+        )
 
         try:
             TwitterHandler("myConsumerKey", "myConsumerSecret")
-        except ConfigNotFoundError:
+        except TwitterConfigNotFoundError:
             self.fail("Twitter.__init__ raised ConfigNotFoundError unexpectedly!")
 
     def test_raises_if_no_token_provided(self):
@@ -399,15 +405,19 @@ class TwitterHandlerTest(TestCase):
         }
 
         twitter = TwitterHandler("myConsumerKey", "myConsumerSecret")
-        self.assertRaises(AchiveUrlNotFoundError, twitter.tweet_diff, diff, token)
+        self.assertRaises(
+            TwitterAchiveUrlNotFoundError, twitter.tweet_diff, diff, token
+        )
 
         type(diff.old).archive_url = PropertyMock(return_value="http://test.url/old")
-        self.assertRaises(AchiveUrlNotFoundError, twitter.tweet_diff, diff, token)
+        self.assertRaises(
+            TwitterAchiveUrlNotFoundError, twitter.tweet_diff, diff, token
+        )
 
         type(diff.new).archive_url = PropertyMock(return_value="http://test.url/new")
         try:
             twitter.tweet_diff(diff, token)
-        except AchiveUrlNotFoundError:
+        except TwitterAchiveUrlNotFoundError:
             self.fail("twitter.tweet_diff raised AchiveUrlNotFoundError unexpectedly!")
 
     class MockedStatus(MagicMock):
@@ -558,10 +568,10 @@ class SendgridHandlerTest(TestCase):
         type(diff).emailed = PropertyMock(return_value=False)
         sendgrid = SendgridHandler({})
 
-        self.assertRaises(SGConfigNotFoundError, sendgrid.publish_diff, diff, {})
+        self.assertRaises(SendgridConfigNotFoundError, sendgrid.publish_diff, diff, {})
         try:
             sendgrid.publish_diff(diff, self.config["sendgrid"])
-        except SGConfigNotFoundError:
+        except SendgridConfigNotFoundError:
             self.fail("sendgrid.publish_diff raised ConfigNotFoundError unexpectedly!")
 
     def test_raises_if_already_emailed(self):
@@ -570,7 +580,7 @@ class SendgridHandlerTest(TestCase):
 
         sendgrid = SendgridHandler(self.config["sendgrid"])
         self.assertRaises(
-            SGAlreadyEmailedError, sendgrid.publish_diff, diff, self.config["sendgrid"]
+            AlreadyEmailedError, sendgrid.publish_diff, diff, self.config["sendgrid"]
         )
 
     def test_raises_if_not_all_archive_urls_are_present(self):
@@ -578,18 +588,24 @@ class SendgridHandlerTest(TestCase):
 
         sendgrid = SendgridHandler(self.config["sendgrid"])
         self.assertRaises(
-            SGArchiveNotFoundError, sendgrid.publish_diff, diff, self.config["sendgrid"]
+            SendgridArchiveUrlNotFoundError,
+            sendgrid.publish_diff,
+            diff,
+            self.config["sendgrid"],
         )
 
         type(diff.old).archive_url = PropertyMock(return_value="http://test.url/old")
         self.assertRaises(
-            SGArchiveNotFoundError, sendgrid.publish_diff, diff, self.config["sendgrid"]
+            SendgridArchiveUrlNotFoundError,
+            sendgrid.publish_diff,
+            diff,
+            self.config["sendgrid"],
         )
 
         type(diff.new).archive_url = PropertyMock(return_value="http://test.url/new")
         try:
             sendgrid.publish_diff(diff, self.config["sendgrid"])
-        except SGArchiveNotFoundError:
+        except SendgridArchiveUrlNotFoundError:
             self.fail(
                 "sendgrid.publish_diff raised AchiveUrlNotFoundError unexpectedly!"
             )

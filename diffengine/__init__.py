@@ -27,15 +27,21 @@ from diffengine.twitter import TwitterHandler
 from diffengine.utils import request_pin_to_user_and_get_token
 
 from exceptions.webdriver import UnknownWebdriverError
-from exceptions.sendgrid import (
-    ConfigNotFoundError as SGConfigNotFoundError,
-    SendgridError,
-)
-from exceptions.twitter import ConfigNotFoundError, TwitterError
+from exceptions.sendgrid import SendgridConfigNotFoundError, SendgridError
+from exceptions.twitter import TwitterConfigNotFoundError, TwitterError
 
-from peewee import *
-from playhouse.migrate import SqliteMigrator, migrate
 from datetime import datetime
+from peewee import (
+    DatabaseProxy,
+    CharField,
+    DateTimeField,
+    OperationalError,
+    ForeignKeyField,
+    Model,
+    SqliteDatabase,
+)
+from playhouse.db_url import connect
+from playhouse.migrate import SqliteMigrator, migrate
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -43,13 +49,13 @@ from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
 home = None
 config = {}
-db = SqliteDatabase(None)
+database = DatabaseProxy()
 browser = None
 
 
 class BaseModel(Model):
     class Meta:
-        database = db
+        database = database
 
 
 class Feed(BaseModel):
@@ -403,17 +409,20 @@ def get_auth_link_and_show_token():
 
 
 def setup_db():
-    global home, db
-    db_file = config.get("db", os.path.join(home, "diffengine.db"))
-    logging.debug("connecting to db %s", db_file)
-    db.init(db_file)
-    db.connect()
-    db.create_tables([Feed, Entry, FeedEntry, EntryVersion, Diff], safe=True)
-    try:
-        migrator = SqliteMigrator(db)
-        migrate(migrator.add_index("entryversion", ("url",), False))
-    except OperationalError as e:
-        logging.debug(e)
+    global home, database
+    database_url = config.get("db", "sqlite:///diffengine.db")
+    logging.debug("connecting to db %s", database_url)
+    database_handler = connect(database_url)
+    database.initialize(database_handler)
+    database.connect()
+    database.create_tables([Feed, Entry, FeedEntry, EntryVersion, Diff], safe=True)
+
+    if isinstance(database_handler, SqliteDatabase):
+        try:
+            migrator = SqliteMigrator(database)
+            migrate(migrator.add_index("entryversion", ("url",), False))
+        except OperationalError as e:
+            logging.debug(e)
 
 
 def chromedriver_browser(executable_path, binary_location):
@@ -483,7 +492,7 @@ def main():
         twitter_handler = TwitterHandler(
             twitter_config["consumer_key"], twitter_config["consumer_secret"]
         )
-    except ConfigNotFoundError as e:
+    except TwitterConfigNotFoundError as e:
         twitter_handler = None
         logging.warning("error when creating Twitter Handler. Reason", str(e))
     except KeyError as e:
@@ -547,7 +556,7 @@ def process_entry(entry, feed_config, twitter=None, sendgrid=None, lang={}):
                             version.diff, feed_config.get("sendgrid", {})
                         )
 
-                    except SGConfigNotFoundError as e:
+                    except SendgridConfigNotFoundError as e:
                         logging.error(
                             "Missing configuration values for publishing entry %s",
                             entry.url,

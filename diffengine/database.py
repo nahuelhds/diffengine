@@ -7,14 +7,14 @@ from playhouse.db_url import connect
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL is not None:
     print("defined database. Using PostgreSQL.")
-    db = connect(DATABASE_URL)
+    database = connect(DATABASE_URL)
 else:
     print("no database defined, using SQLite.")
-    db = SqliteDatabase(None)
+    database = SqliteDatabase(None)
 
 
 def setup_db():
-    global db
+    global database
 
     # If it's local, it needs to be init
     if DATABASE_URL is None:
